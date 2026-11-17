@@ -1,0 +1,251 @@
+
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#172b4d">
+<title>TimePlus Pro | تایم پلاس</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap');
+
+:root {
+  --navy:#172b4d;
+  --blue:#3569a8;
+  --light:#f3f6fb;
+  --text:#26364d;
+  --muted:#8491a5;
+  --white:#fff;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;
+  font-family:Vazirmatn,Tahoma,sans-serif;
+  background:var(--light);
+  color:var(--text);
+}
+button,input{font:inherit}
+button{cursor:pointer}
+.login-page{
+  min-height:100vh;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:24px;
+  background:linear-gradient(135deg,#142947,#315d88);
+}
+.login-card{
+  width:100%;
+  max-width:420px;
+  padding:38px;
+  border-radius:24px;
+  background:white;
+  box-shadow:0 20px 60px #07182b55;
+}
+.logo{
+  width:65px;height:65px;
+  display:grid;place-items:center;
+  margin:0 auto 15px;
+  border-radius:20px;
+  background:#e9f1fc;
+  color:var(--blue);
+  font-size:30px;
+}
+.login-card h1{text-align:center;margin:0;color:var(--navy)}
+.subtitle{text-align:center;color:var(--muted);margin:8px 0 30px}
+.field{margin-bottom:17px}
+.field label{display:block;font-size:13px;margin-bottom:8px}
+.field input{
+  width:100%;padding:13px 14px;
+  border:1px solid #dce3ed;border-radius:11px;
+  outline:none;background:#fbfcfe;
+}
+.field input:focus{border-color:var(--blue)}
+.primary{
+  width:100%;border:0;border-radius:11px;
+  padding:13px;background:var(--blue);
+  color:white;font-weight:700;
+}
+.demo-note{
+  margin-top:20px;padding:12px;
+  border-radius:10px;background:#f1f5fb;
+  color:#65758c;font-size:12px;line-height:2;
+}
+#dashboard{display:none;min-height:100vh}
+.topbar{
+  height:72px;background:white;
+  display:flex;align-items:center;
+  justify-content:space-between;
+  padding:0 25px;border-bottom:1px solid #e7ebf2;
+}
+.brand{font-weight:800;color:var(--navy);font-size:20px}
+.brand span{color:var(--blue)}
+.profile{font-size:13px;color:var(--muted)}
+.layout{display:flex;min-height:calc(100vh - 72px)}
+.sidebar{
+  width:235px;background:var(--navy);
+  padding:25px 14px;color:white;flex-shrink:0;
+}
+.side-title{font-size:12px;color:#aebed3;padding:5px 12px 16px}
+.nav-btn{
+  width:100%;border:0;background:transparent;
+  color:#d8e3f1;text-align:right;
+  padding:13px 14px;border-radius:10px;
+  margin-bottom:5px;font-size:14px;
+}
+.nav-btn.active,.nav-btn:hover{background:#ffffff20;color:white}
+.main{padding:30px;width:100%;max-width:1250px;margin:auto}
+.welcome{
+  padding:27px;border-radius:18px;
+  color:white;background:linear-gradient(110deg,#24466e,#5687b8);
+  margin-bottom:25px;
+}
+.welcome h2{margin:0 0 8px;font-size:22px}
+.welcome p{margin:0;color:#e1ebf6;font-size:13px}
+.section-title{font-size:18px;margin:25px 0 15px}
+.cards{
+  display:grid;grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:16px;
+}
+.card{
+  background:white;border:1px solid #e8edf4;
+  border-radius:15px;padding:20px;
+  box-shadow:0 5px 18px #20365308;
+}
+.card .icon{font-size:24px}
+.card h3{font-size:14px;margin:12px 0 5px}
+.card p{font-size:12px;color:var(--muted);margin:0}
+.panel{
+  background:white;border-radius:15px;
+  padding:22px;margin-top:20px;
+  border:1px solid #e8edf4;
+}
+.panel p{font-size:13px;color:var(--muted);line-height:2}
+.mobile-menu{display:none}
+.footer{text-align:center;color:#9aa5b5;font-size:11px;padding:30px}
+@media(max-width:750px){
+  .layout{display:block}
+  .sidebar{width:100%;display:flex;overflow:auto;padding:9px;gap:5px}
+  .side-title{display:none}
+  .nav-btn{white-space:nowrap;width:auto;margin:0;padding:10px}
+  .main{padding:17px}
+  .cards{grid-template-columns:1fr}
+  .topbar{padding:0 15px}
+  .login-card{padding:27px 22px}
+  .welcome{padding:22px}
+}
+</style>
+</head>
+<body>
+
+<section class="login-page" id="login">
+  <div class="login-card">
+    <div class="logo">✦</div>
+    <h1>TimePlus Pro</h1>
+    <div class="subtitle">سامانه مدیریت و زمان‌بندی تایم پلاس</div>
+    <form id="loginForm">
+      <div class="field">
+        <label for="username">نام کاربری</label>
+        <input id="username" autocomplete="username" placeholder="نام کاربری آزمایشی" required>
+      </div>
+      <div class="field">
+        <label for="password">رمز عبور</label>
+        <input id="password" type="password" autocomplete="current-password" placeholder="رمز عبور آزمایشی" required>
+      </div>
+      <button class="primary" type="submit">ورود به سامانه</button>
+    </form>
+    <div class="demo-note">
+      نسخه نمایشی تایم پلاس پرو<br>
+      در این مرحله ورود واقعی و ذخیره اطلاعات فعال نیست.
+    </div>
+  </div>
+</section>
+
+<section id="dashboard">
+  <header class="topbar">
+    <div class="brand">TimePlus <span>Pro</span></div>
+    <div class="profile">نسخه آزمایشی | <span id="displayUser"></span></div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="side-title">منوی اصلی</div>
+      <button class="nav-btn active" onclick="showPage('home',this)">⌂ داشبورد</button>
+      <button class="nav-btn" onclick="showPage('appointments',this)">◷ نوبت‌ها</button>
+      <button class="nav-btn" onclick="showPage('clients',this)">♙ مراجعان</button>
+      <button class="nav-btn" onclick="showPage('sessions',this)">▤ جلسات</button>
+      <button class="nav-btn" onclick="showPage('reports',this)">▥ گزارش‌ها</button>
+      <button class="nav-btn" onclick="showPage('settings',this)">⚙ تنظیمات</button>
+      <button class="nav-btn" onclick="logout()">↪ خروج</button>
+    </aside>
+
+    <main class="main">
+      <div id="home" class="page">
+        <div class="welcome">
+          <h2>به تایم پلاس پرو خوش آمدید</h2>
+          <p>سامانه یکپارچه مدیریت و برنامه‌ریزی مرکز</p>
+        </div>
+        <h3 class="section-title">دسترسی سریع</h3>
+        <div class="cards">
+          <div class="card"><div class="icon">◷</div><h3>مدیریت نوبت‌ها</h3><p>برنامه‌ریزی و مشاهده نوبت‌ها</p></div>
+          <div class="card"><div class="icon">♙</div><h3>مدیریت مراجعان</h3><p>مدیریت پرونده‌ها در نسخه نهایی</p></div>
+          <div class="card"><div class="icon">▤</div><h3>جلسات مشاوره</h3><p>مدیریت جلسات و سوابق</p></div>
+          <div class="card"><div class="icon">▥</div><h3>گزارش‌ها</h3><p>گزارش‌گیری و آمار</p></div>
+          <div class="card"><div class="icon">⚙</div><h3>تنظیمات حساب</h3><p>تنظیمات کاربران و سامانه</p></div>
+          <div class="card"><div class="icon">☁</div><h3>ذخیره‌سازی ابری</h3><p>در مرحله اتصال به پایگاه داده</p></div>
+        </div>
+        <div class="panel">
+          <h3>وضعیت سامانه</h3>
+          <p>این نسخه صرفاً نمونه اولیه رابط کاربری است. اطلاعاتی در سرور ذخیره نمی‌شود و ورود کاربران هنوز اعتبارسنجی واقعی ندارد.</p>
+        </div>
+      </div>
+
+      <div id="appointments" class="page" hidden>
+        <h2 class="section-title">مدیریت نوبت‌ها</h2>
+        <div class="panel"><p>بخش زمان‌بندی نوبت‌ها در مراحل بعدی ساخته خواهد شد.</p></div>
+      </div>
+      <div id="clients" class="page" hidden>
+        <h2 class="section-title">مدیریت مراجعان</h2>
+        <div class="panel"><p>این بخش پس از طراحی و بررسی امنیت پایگاه داده آماده می‌شود. فعلاً اطلاعات واقعی وارد نکنید.</p></div>
+      </div>
+      <div id="sessions" class="page" hidden>
+        <h2 class="section-title">جلسات مشاوره</h2>
+        <div class="panel"><p>بخش مدیریت جلسات در دست ساخت است.</p></div>
+      </div>
+      <div id="reports" class="page" hidden>
+        <h2 class="section-title">گزارش‌ها</h2>
+        <div class="panel"><p>گزارش‌های سامانه در نسخه‌های بعدی اضافه خواهند شد.</p></div>
+      </div>
+      <div id="settings" class="page" hidden>
+        <h2 class="section-title">تنظیمات</h2>
+        <div class="panel"><p>مدیریت حساب‌ها و سطح دسترسی پس از راه‌اندازی ورود امن فعال خواهد شد.</p></div>
+      </div>
+      <div class="footer">TimePlus Pro · نسخه آزمایشی</div>
+    </main>
+  </div>
+</section>
+
+<script>
+document.getElementById('loginForm').addEventListener('submit',function(e){
+  e.preventDefault();
+  const username=document.getElementById('username').value.trim();
+  if(!username)return;
+  document.getElementById('displayUser').textContent=username;
+  document.getElementById('login').style.display='none';
+  document.getElementById('dashboard').style.display='block';
+});
+function showPage(id,button){
+  document.querySelectorAll('.page').forEach(p=>p.hidden=true);
+  document.getElementById(id).hidden=false;
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+  button.classList.add('active');
+}
+function logout(){
+  document.getElementById('dashboard').style.display='none';
+  document.getElementById('login').style.display='flex';
+  document.getElementById('loginForm').reset();
+}
+</script>
+</body>
+  </html>
+  

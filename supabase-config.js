@@ -9,7 +9,7 @@
   // این مقدار فعلاً آزمایشی است.
   // کلید عمومی را پس از آماده‌شدن تنظیمات امنیتی وارد می‌کنیم.
   const SUPABASE_PUBLISHABLE_KEY =
-    'YOUR_PUBLISHABLE_KEY';
+    'sb_publishable_p78LXedCgBv8pyjph7kGaA_T6rj5CDa';
 
   if (!window.supabase?.createClient) {
     console.error('Supabase SDK is not loaded.');

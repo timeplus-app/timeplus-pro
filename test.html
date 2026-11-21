@@ -1,0 +1,39 @@
+
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>آزمایش اتصال تایم‌پلاس</title>
+</head>
+<body>
+  <h2>آزمایش اتصال تایم‌پلاس</h2>
+  <p id="status">در حال بررسی اتصال...</p>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="./supabase-config.js"></script>
+  <script>
+    (async function () {
+      const status = document.getElementById('status');
+
+      if (!window.timePlusSupabase) {
+        status.textContent = 'تنظیمات Supabase بارگذاری نشده است.';
+        return;
+      }
+
+      try {
+        const { error } =
+          await window.timePlusSupabase.auth.getSession();
+
+        if (error) throw error;
+
+        status.textContent =
+          'اتصال به سرویس احراز هویت Supabase موفق بود.';
+      } catch (error) {
+        status.textContent =
+          'اتصال ناموفق بود: ' + error.message;
+      }
+    })();
+  </script>
+</body>
+</html>

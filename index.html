@@ -329,7 +329,20 @@ main{padding:clamp(16px,2.4vw,30px)}
 </section>
 <section id="clients" class="page hidden">
  <div class="pagehead"><div><h2>پرونده مراجعان</h2><div class="sub">برای هر کودک یک پرونده مستقل بسازید.</div></div><button onclick="openClient()">＋ پرونده جدید</button></div>
- <div class="toolbar"><input id="clientSearch" placeholder="جست‌وجو بر اساس نام یا کد پرونده..." oninput="renderClients()"><select id="clientFilter" onchange="renderClients()" style="max-width:170px"><option value="">همه وضعیت‌ها</option><option>فعال</option><option>خاتمه‌یافته</option><option>در انتظار</option></select></div>
+ <div class="toolbar">
+ <input id="clientSearch" placeholder="جست‌وجو بر اساس نام یا کد پرونده..." oninput="renderClients()">
+ <select id="clientFilter" onchange="renderClients()" style="max-width:170px">
+  <option value="">همه وضعیت‌ها</option>
+  <option>فعال</option>
+  <option>خاتمه‌یافته</option>
+  <option>در انتظار</option>
+ </select>
+ <select id="clientArchiveFilter" onchange="renderClients()" style="max-width:170px">
+  <option value="active">پرونده‌های بایگانی‌نشده</option>
+  <option value="archived">بایگانی‌شده‌ها</option>
+  <option value="all">همه پرونده‌ها</option>
+ </select>
+ </div>
  <div class="panel" style="padding:0;overflow:auto"><table><thead><tr><th>کد پرونده</th><th>نام مراجع</th><th>پایه</th><th>زمینه مراجعه</th><th>وضعیت</th><th>عملیات</th></tr></thead><tbody id="clientRows"></tbody></table></div>
 </section>
 <section id="assess" class="page hidden">

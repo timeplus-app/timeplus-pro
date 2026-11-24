@@ -506,7 +506,36 @@ function openClient(id=''){
  closeModal();
 };
 }
-function renderClients(){let q=$('clientSearch').value.toLowerCase(),f=$('clientFilter').value;let arr=db.clients.filter(c=>(c.name+' '+c.code).toLowerCase().includes(q)&&(!f||c.status===f));$('clientRows').innerHTML=arr.map(c=>`<tr><td>${esc(c.code)}</td><td><b>${esc(c.name)}</b></td><td>${esc(c.grade)}</td><td>${esc(c.reason||'—')}</td><td><span class="badge">${esc(c.status)}</span></td><td><div class="actions"><button class="small" onclick="viewClient('${c.id}')">پرونده</button><button class="small secondary" onclick="openClient('${c.id}')">ویرایش</button><button class="small secondary" onclick="prepareInvoice('${c.id}')">صورتحساب</button><button class="small danger" onclick="deleteClient('${c.id}')">حذف</button></div></td></tr>`).join('')||`<tr><td colspan="6"><div class="empty">هنوز پرونده‌ای ثبت نشده است.</div></td></tr>`}
+
+function renderClients(){
+ let q=$('clientSearch').value.toLowerCase();
+ let f=$('clientFilter').value;
+ let af=$('clientArchiveFilter')?.value||'active';
+ let arr=db.clients.filter(c=>
+  (c.name+' '+c.code).toLowerCase().includes(q)&&
+  (!f||c.status===f)&&
+  (af==='all'||(af==='archived'?!!c.archivedAt:!c.archivedAt))
+ );
+ $('clientRows').innerHTML=arr.map(c=>`<tr><td>${esc(c.code)}</td><td><b>${esc(c.name)}</b></td><td>${esc(c.grade)}</td><td>${esc(c.reason||'—')}</td><td><span class="badge">${esc(c.status)}</span></td><td><div class="actions"><button class="small" onclick="viewClient('${c.id}')">پرونده</button><button class="small secondary" onclick="openClient('${c.id}')">ویرایش</button><button class="small secondary" onclick="prepareInvoice('${c.id}')">صورتحساب</button>${c.archivedAt?`<button class="small secondary" onclick="restoreClient('${c.id}')">بازیابی</button>`:`<button class="small danger" onclick="archiveClient('${c.id}')">بایگانی</button>`}</div></td></tr>`).join('')||`<tr><td colspan="6"><div class="empty">پرونده‌ای در این فیلتر پیدا نشد.</div></td></tr>`;
+ }
+ 
+function archiveClient(id){
+ if(!confirm('این پرونده بایگانی شود؟ اطلاعات جلسات و ارزیابی‌ها حفظ می‌شوند.'))return;
+ const c=db.clients.find(x=>x.id===id);
+ if(!c)return;
+ c.archivedAt=new Date().toISOString();
+ save();
+ renderClients();
+}
+
+function restoreClient(id){
+ const c=db.clients.find(x=>x.id===id);
+ if(!c)return;
+ delete c.archivedAt;
+ save();
+ renderClients();
+ }
+ 
 function deleteClient(id){if(!confirm('پرونده و تمام گزارش‌ها و ارزیابی‌های مرتبط حذف شوند؟'))return;db.clients=db.clients.filter(x=>x.id!==id);db.sessions=db.sessions.filter(x=>x.clientId!==id);db.assessments=db.assessments.filter(x=>x.clientId!==id);save()}
 function viewClient(id){currentClient=id;let c=db.clients.find(x=>x.id===id);let ss=db.sessions.filter(x=>x.clientId===id).sort((a,b)=>a.date.localeCompare(b.date));let aa=db.assessments.filter(x=>x.clientId===id);openModal('پرونده مراجع: '+c.name,`<div class="tabs"><button class="tab active" onclick="showClientTab('overview',this)">خلاصه</button><button class="tab" onclick="showClientTab('sessions',this)">جلسات (${fa(ss.length)})</button><button class="tab" onclick="showClientTab('assess',this)">ارزیابی‌ها (${fa(aa.length)})</button></div><div id="clientTab"><div class="formgrid"><div><label>کد پرونده</label><b>${esc(c.code)}</b></div><div><label>پایه</label><b>${esc(c.grade)}</b></div><div><label>علت مراجعه</label><b>${esc(c.reason||'—')}</b></div><div><label>وضعیت</label><b>${esc(c.status)}</b></div><div class="full"><label>راه‌های ارتباطی والدین</label><b>پدر: ${esc(c.fatherPhone||'ثبت نشده')}　 |　 مادر: ${esc(c.motherPhone||'ثبت نشده')}</b></div><div class="full"><label>شرح مشکل</label><p>${esc(c.parent||'—')}</p></div><div class="full"><label>سوابق مرتبط</label><p>${esc(c.history||'—')}</p></div><div class="full"><label>یادداشت متخصص</label><p>${esc(c.notes||'—')}</p></div></div><div class="actions" style="margin-top:15px"><button onclick="closeModal();openSession('${id}')">＋ ثبت جلسه</button><button class="secondary" onclick="closeModal();openAssessment('${id}')">＋ ارزیابی</button><button class="secondary" onclick="closeModal();openSmsComposer('custom',['${id}'])">✉ پیام به والدین</button></div></div><div class="no-print" style="margin-top:15px"><button class="secondary" onclick="closeModal();go('reports',document.querySelector('[data-page=reports]'));$('reportClient').value='${id}';renderReport()">مشاهده گزارش نهایی</button></div>`)}
 function showClientTab(which,btn){document.querySelectorAll('.tabs .tab').forEach(x=>x.classList.remove('active'));btn.classList.add('active');let c=db.clients.find(x=>x.id===currentClient);if(which==='overview')return viewClient(currentClient);if(which==='sessions'){let a=db.sessions.filter(x=>x.clientId===currentClient);$('clientTab').innerHTML=a.map(s=>`<div class="panel" style="margin:8px 0"><b>${esc(s.date)} · جلسه ${fa(s.number)}</b><p>${esc(s.goal)}</p><small>${esc(s.observation)}</small></div>`).join('')||'<div class="empty">جلسه‌ای ثبت نشده است.</div>'}else{let a=db.assessments.filter(x=>x.clientId===currentClient);$('clientTab').innerHTML=a.map(s=>`<div class="panel" style="margin:8px 0"><b>${esc(s.type)} · ${formatDateFa(s.date)}</b><p>${Object.entries(s.scores).map(([k,v])=>`${esc(k)}: ${fa(v)}/۵`).join('　 |　')}</p></div>`).join('')||'<div class="empty">ارزیابی‌ای ثبت نشده است.</div>'}}

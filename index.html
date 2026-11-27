@@ -1856,6 +1856,7 @@ window.tpCloudLoadClients=async function(){
  if(typeof refreshClientSelectors==='function')refreshClientSelectors();
  if(document.getElementById('clients')&&!document.getElementById('clients').classList.contains('hidden'))renderClients();
  status(`اتصال ابری برقرار است · ${fa(rows.length)} پرونده از Supabase دریافت شد. جلسات و ارزیابی‌ها هنوز در این مرحله منتقل نشده‌اند.`);
+if(typeof refresh==='function') refresh();
  return rows.length;
 };
 window.tpInitClientAssignment=async function(id,currentClient){

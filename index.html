@@ -1916,5 +1916,315 @@ window.tpImportClientsBackup=async function(event){
 })();
 </script>
 
+
+<style id="tp-cloud-records-readonly-style">
+body.tp-readonly #sessions .pagehead button,
+body.tp-readonly #sessions .actions button,
+body.tp-readonly #assess .pagehead button,
+body.tp-readonly #assess .actions button,
+body.tp-readonly #assessRows button,
+body.tp-readonly #iqtest .pagehead button,
+body.tp-readonly #iqRows button,
+body.tp-readonly #clientTab .actions button,
+body.tp-readonly #clients .actions button:not(:first-child) {
+  display:none!important;
+}
+</style>
+<script id="tp-cloud-records-sync-v2">
+(function () {
+  'use strict';
+
+  const COLLECTIONS = [
+    { key: 'sessions', type: 'session' },
+    { key: 'assessments', type: 'assessment' },
+    { key: 'iqTests', type: 'iq_test' },
+    { key: 'invoices', type: 'invoice' }
+  ];
+  const TABLE = 'client_app_data';
+  const HOLD_KEY = 'tp_cloud_pending_records_v2';
+  let syncReady = false;
+  let activeAccountId = '';
+  let syncQueue = Promise.resolve();
+  let snapshots = new Map();
+
+  const client = () => window.tpSupabaseClient;
+  const account = () => window.tpGetCurrentAccount?.() || null;
+  const canEdit = () => {
+    const user = account();
+    return !!user && (user.role === 'manager' || user.role === 'psychologist');
+  };
+  const makeKey = (type, clientId, recordKey) =>
+    [type, String(clientId), String(recordKey)].join('|');
+
+  function setStatus(message, isError = false) {
+    const el = document.getElementById('tpCloudClientStatus');
+    if (!el) return;
+    el.textContent = message;
+    el.style.color = isError ? '#a83232' : '#18716c';
+    el.style.borderColor = isError ? '#c65b5b' : '';
+  }
+
+  function readHold() {
+    try {
+      const value = JSON.parse(localStorage.getItem(HOLD_KEY) || '{}');
+      return value && typeof value === 'object' ? value : {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function writeHold(value) {
+    localStorage.setItem(HOLD_KEY, JSON.stringify(value));
+  }
+
+  function rowsFor(type, clientIds) {
+    if (!clientIds.length) return Promise.resolve([]);
+    return client().from(TABLE)
+      .select('client_id,record_type,record_key,data,updated_at')
+      .in('client_id', clientIds)
+      .in('record_type', COLLECTIONS.map(x => x.type));
+  }
+
+  function normalizedRecord(row) {
+    return {
+      ...(row.data && typeof row.data === 'object' ? row.data : {}),
+      id: String(row.record_key),
+      clientId: String(row.client_id)
+    };
+  }
+
+  async function initialSync() {
+    const sb = client();
+    const user = account();
+    if (!sb?.from || !user?.id) return;
+
+    syncReady = false;
+    activeAccountId = String(user.id);
+
+    const clientIds = [...new Set((db.clients || []).map(x => String(x.id)))];
+    const allowed = new Set(clientIds);
+    const hold = readHold();
+    const nextHold = {};
+
+    for (const collection of COLLECTIONS) {
+      const local = Array.isArray(db[collection.key]) ? db[collection.key] : [];
+      const held = Array.isArray(hold[collection.key]) ? hold[collection.key] : [];
+      const merged = new Map();
+
+      [...local, ...held].forEach(item => {
+        if (!item?.id || !item?.clientId) return;
+        merged.set(makeKey(collection.type, item.clientId, item.id), item);
+      });
+
+      const candidates = [...merged.values()];
+      const response = await rowsFor(collection.type, clientIds);
+      if (response.error) throw response.error;
+
+      const cloudKeys = new Set((response.data || [])
+        .filter(row => row.record_type === collection.type)
+        .map(row => makeKey(row.record_type, row.client_id, row.record_key)));
+
+      const pending = [];
+      for (const item of candidates) {
+        const key = makeKey(collection.type, item.clientId, item.id);
+        if (!allowed.has(String(item.clientId))) {
+          pending.push(item);
+          continue;
+        }
+        if (cloudKeys.has(key)) continue;
+
+        if (!canEdit()) {
+          pending.push(item);
+          continue;
+        }
+
+        const payload = {
+          client_id: String(item.clientId),
+          created_by: user.id,
+          record_type: collection.type,
+          record_key: String(item.id),
+          data: item,
+          updated_at: new Date().toISOString()
+        };
+        const inserted = await sb.from(TABLE).insert(payload);
+        if (inserted.error) {
+          pending.push(item);
+          console.error('Time Plus migration:', inserted.error);
+        } else {
+          cloudKeys.add(key);
+        }
+      }
+
+      if (pending.length) nextHold[collection.key] = pending;
+    }
+
+    const finalResponse = await rowsFor('all', clientIds);
+    if (finalResponse.error) throw finalResponse.error;
+    const cloudRows = finalResponse.data || [];
+
+    for (const collection of COLLECTIONS) {
+      db[collection.key] = cloudRows
+        .filter(row => row.record_type === collection.type && row.data)
+        .map(normalizedRecord);
+    }
+
+    writeHold(nextHold);
+    localStorage.setItem(KEY, JSON.stringify(db));
+
+    snapshots = new Map();
+    for (const collection of COLLECTIONS) {
+      for (const item of db[collection.key]) {
+        const key = makeKey(collection.type, item.clientId, item.id);
+        const row = cloudRows.find(x =>
+          x.record_type === collection.type &&
+          String(x.client_id) === String(item.clientId) &&
+          String(x.record_key) === String(item.id)
+        );
+        snapshots.set(key, {
+          json: JSON.stringify(item),
+          updatedAt: row?.updated_at || null
+        });
+      }
+    }
+
+    syncReady = true;
+    document.body.classList.toggle('tp-readonly', !canEdit());
+    if (typeof refresh === 'function') refresh();
+    setStatus(
+      `همگام‌سازی ابری انجام شد · ${fa(db.sessions.length)} جلسه، ${fa(db.assessments.length)} ارزیابی، ${fa(db.iqTests.length)} آزمون هوش و ${fa(db.invoices.length)} صورتحساب`
+    );
+  }
+
+  async function syncChanges() {
+    if (!syncReady || !canEdit() || String(account()?.id || '') !== activeAccountId) return;
+    const sb = client();
+    const allowed = new Set((db.clients || []).map(x => String(x.id)));
+    const current = new Map();
+
+    for (const collection of COLLECTIONS) {
+      for (const item of (db[collection.key] || [])) {
+        if (!item?.id || !item?.clientId || !allowed.has(String(item.clientId))) continue;
+        const key = makeKey(collection.type, item.clientId, item.id);
+        current.set(key, { collection, item, json: JSON.stringify(item) });
+      }
+    }
+
+    for (const [key, entry] of current) {
+      const { collection, item, json } = entry;
+      const previous = snapshots.get(key);
+      const filter = query => query
+        .eq('client_id', String(item.clientId))
+        .eq('record_type', collection.type)
+        .eq('record_key', String(item.id));
+
+      if (!previous) {
+        const inserted = await sb.from(TABLE).insert({
+          client_id: String(item.clientId),
+          created_by: account().id,
+          record_type: collection.type,
+          record_key: String(item.id),
+          data: item,
+          updated_at: new Date().toISOString()
+        }).select('updated_at');
+        if (inserted.error) throw inserted.error;
+        snapshots.set(key, { json, updatedAt: inserted.data?.[0]?.updated_at || null });
+      } else if (previous.json !== json) {
+        let q = sb.from(TABLE).update({
+          data: item,
+          updated_at: new Date().toISOString()
+        });
+        q = filter(q);
+        if (previous.updatedAt) q = q.eq('updated_at', previous.updatedAt);
+        const updated = await q.select('updated_at');
+        if (updated.error) throw updated.error;
+        if (!updated.data?.length) {
+          throw new Error('این سابقه در دستگاه دیگری تغییر کرده است. صفحه را تازه‌سازی کنید و دوباره تغییر دهید.');
+        }
+        snapshots.set(key, { json, updatedAt: updated.data[0].updated_at });
+      }
+    }
+
+    for (const [key, previous] of [...snapshots.entries()]) {
+      if (current.has(key)) continue;
+      const parts = key.split('|');
+      const [type, clientId, recordKey] = parts;
+      if (!allowed.has(clientId)) continue;
+
+      let q = sb.from(TABLE).delete()
+        .eq('client_id', clientId)
+        .eq('record_type', type)
+        .eq('record_key', recordKey);
+      if (previous.updatedAt) q = q.eq('updated_at', previous.updatedAt);
+      const deleted = await q.select('record_key');
+      if (deleted.error) throw deleted.error;
+
+      if (!deleted.data?.length) {
+        const check = await sb.from(TABLE).select('record_key')
+          .eq('client_id', clientId)
+          .eq('record_type', type)
+          .eq('record_key', recordKey)
+          .maybeSingle();
+        if (check.error) throw check.error;
+        if (check.data) {
+          throw new Error('این سابقه در دستگاه دیگری تغییر کرده است؛ برای جلوگیری از حذف اطلاعات، همگام‌سازی متوقف شد.');
+        }
+      }
+      snapshots.delete(key);
+    }
+  }
+
+  const originalSave = window.save;
+  if (typeof originalSave === 'function') {
+    window.save = function () {
+      const result = originalSave.apply(this, arguments);
+      if (syncReady && canEdit()) {
+        syncQueue = syncQueue
+          .then(syncChanges)
+          .catch(error => {
+            console.error('Time Plus cloud sync:', error);
+            setStatus('ذخیره محلی انجام شد؛ همگام‌سازی ابری ناموفق بود: ' + (error.message || error), true);
+          });
+      }
+      return result;
+    };
+  }
+
+  const originalLoad = window.tpCloudLoadClients;
+  if (typeof originalLoad === 'function') {
+    window.tpCloudLoadClients = async function () {
+      const result = await originalLoad.apply(this, arguments);
+      try {
+        await initialSync();
+      } catch (error) {
+        syncReady = false;
+        console.error('Time Plus initial sync:', error);
+        setStatus('پرونده‌ها دریافت شدند، اما همگام‌سازی سوابق کامل نشد: ' + (error.message || error), true);
+      }
+      return result;
+    };
+  }
+
+  window.tpCloudSyncAppData = initialSync;
+
+  function protect(name) {
+    const original = window[name];
+    if (typeof original !== 'function') return;
+    window[name] = function () {
+      if (!canEdit()) {
+        alert('حساب شما فقط اجازه مشاهده اطلاعات را دارد.');
+        return;
+      }
+      return original.apply(this, arguments);
+    };
+  }
+
+  ['openClient', 'openSession', 'editSession', 'openSessionForm',
+   'openAssessment', 'deleteSession', 'deleteAssessment',
+   'openIQTest', 'deleteIQTest', 'prepareInvoice'].forEach(protect);
+
+  document.body.classList.toggle('tp-readonly', !canEdit());
+})();
+</script>
+
 </body>
 </html>

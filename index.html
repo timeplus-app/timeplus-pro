@@ -2226,5 +2226,403 @@ body.tp-readonly #clients .actions button:not(:first-child) {
 })();
 </script>
 
+
+<!-- TIMEPLUS_SPECIALTY_CLOUD_SYNC_V1 -->
+<style id="tp-specialty-cloud-style">
+.tp-note-client-select{width:100%;margin:0 0 9px;min-height:42px;border:1px solid #dce6eb;border-radius:10px;padding:9px 11px;background:#fff;color:#24364b}
+.tp-note-client-label{display:block;margin:8px 0 6px;font-size:12px;font-weight:700;color:#536176}
+body.tp-readonly .specialty-workspace .workspace-card button:not(.workspace-tabs button){pointer-events:none;opacity:.55}
+body.tp-readonly .specialty-workspace .workspace-card input:not([id$="_client_context"]),
+body.tp-readonly .specialty-workspace .workspace-card textarea,
+body.tp-readonly .specialty-workspace .workspace-card select:not([id$="_client_context"]){background:#f5f7fa}
+</style>
+<script id="tp-specialty-cloud-sync-v1">
+(function () {
+  'use strict';
+
+  const TABLE = 'client_app_data';
+  const MODULES = ['academic','family','premarital','child','teen','learning','adult','career','rehab'];
+  const WORKSPACE_PREFIX = 'tp_workspace_v2_';
+  const NOTE_PREFIX = 'tp_module_note_v1_';
+  const LEGACY_NOTES_KEY = 'tp_module_notes';
+  const nativeSetItem = Storage.prototype.setItem;
+  const snapshots = new Map();
+  const timers = new Map();
+  let activeAccountId = '';
+  let ready = false;
+  let queue = Promise.resolve();
+
+  const sb = () => window.tpSupabaseClient;
+  const account = () => window.tpGetCurrentAccount?.() || null;
+  const canEdit = () => {
+    const u = account();
+    return !!u && (u.role === 'manager' || u.role === 'psychologist');
+  };
+  const keyOf = (type, clientId, recordKey) =>
+    [type, String(clientId), String(recordKey)].join('|');
+  const workspaceKey = (moduleId, clientId) =>
+    WORKSPACE_PREFIX + moduleId + '_' + clientId;
+  const noteKey = (moduleId, clientId) =>
+    NOTE_PREFIX + moduleId + '_' + clientId;
+  const parseWorkspaceKey = key => {
+    if (!String(key).startsWith(WORKSPACE_PREFIX)) return null;
+    const rest = String(key).slice(WORKSPACE_PREFIX.length);
+    const moduleId = MODULES.find(id => rest.startsWith(id + '_'));
+    if (!moduleId) return null;
+    const clientId = rest.slice(moduleId.length + 1);
+    return clientId ? { moduleId, clientId } : null;
+  };
+  const parseNoteKey = key => {
+    if (!String(key).startsWith(NOTE_PREFIX)) return null;
+    const rest = String(key).slice(NOTE_PREFIX.length);
+    const moduleId = MODULES.find(id => rest.startsWith(id + '_'));
+    if (!moduleId) return null;
+    const clientId = rest.slice(moduleId.length + 1);
+    return clientId ? { moduleId, clientId } : null;
+  };
+
+  function status(message, error) {
+    const el = document.getElementById('tpCloudClientStatus');
+    if (!el) return;
+    el.textContent = message;
+    el.style.color = error ? '#a83232' : '#18716c';
+  }
+
+  function localJson(key, fallback) {
+    try {
+      const value = JSON.parse(localStorage.getItem(key) || 'null');
+      return value == null ? fallback : value;
+    } catch (_) {
+      return fallback;
+    }
+  }
+
+  function setLocal(key, value) {
+    nativeSetItem.call(localStorage, key, JSON.stringify(value));
+  }
+
+  function allowedClients() {
+    return new Set((typeof db !== 'undefined' && Array.isArray(db.clients) ? db.clients : []).map(c => String(c.id)));
+  }
+
+  async function fetchRows(clientIds) {
+    if (!clientIds.length) return [];
+    const result = await sb().from(TABLE)
+      .select('client_id,record_type,record_key,data,updated_at')
+      .in('client_id', clientIds)
+      .in('record_type', ['specialty_form','module_note']);
+    if (result.error) throw result.error;
+    return result.data || [];
+  }
+
+  async function insertRecord(type, clientId, recordKey, data) {
+    const user = account();
+    const updatedAt = new Date().toISOString();
+    const result = await sb().from(TABLE).insert({
+      client_id: String(clientId),
+      created_by: user.id,
+      record_type: type,
+      record_key: String(recordKey),
+      data,
+      updated_at: updatedAt
+    }).select('updated_at');
+    if (result.error) throw result.error;
+    snapshots.set(keyOf(type, clientId, recordKey), {
+      json: JSON.stringify(data),
+      updatedAt: result.data?.[0]?.updated_at || updatedAt
+    });
+  }
+
+  async function updateRecord(type, clientId, recordKey, data, previous) {
+    let q = sb().from(TABLE).update({
+      data,
+      updated_at: new Date().toISOString()
+    }).eq('client_id', String(clientId))
+      .eq('record_type', type)
+      .eq('record_key', String(recordKey));
+    if (previous?.updatedAt) q = q.eq('updated_at', previous.updatedAt);
+    const result = await q.select('updated_at');
+    if (result.error) throw result.error;
+    if (!result.data?.length) {
+      throw new Error('این پرونده تخصصی در دستگاه دیگری تغییر کرده است. برای جلوگیری از بازنویسی اطلاعات، صفحه را تازه‌سازی کنید.');
+    }
+    snapshots.set(keyOf(type, clientId, recordKey), {
+      json: JSON.stringify(data),
+      updatedAt: result.data[0].updated_at
+    });
+  }
+
+  async function saveRecord(type, clientId, recordKey, data) {
+    if (!ready || !canEdit() || String(account()?.id || '') !== activeAccountId) return;
+    if (!allowedClients().has(String(clientId))) return;
+    const k = keyOf(type, clientId, recordKey);
+    const json = JSON.stringify(data);
+    const previous = snapshots.get(k);
+    if (!previous) {
+      await insertRecord(type, clientId, recordKey, data);
+    } else if (previous.json !== json) {
+      await updateRecord(type, clientId, recordKey, data, previous);
+    }
+  }
+
+  function queueRecord(type, clientId, recordKey, data) {
+    queue = queue.then(() => saveRecord(type, clientId, recordKey, data))
+      .catch(error => {
+        console.error('Time Plus specialty sync:', error);
+        status('ذخیره در این دستگاه انجام شد؛ همگام‌سازی سوابق تخصصی ناموفق بود: ' + (error.message || error), true);
+      });
+    return queue;
+  }
+
+  function scheduleKey(key) {
+    clearTimeout(timers.get(key));
+    timers.set(key, setTimeout(() => {
+      timers.delete(key);
+      if (key.startsWith(WORKSPACE_PREFIX)) {
+        const parsed = parseWorkspaceKey(key);
+        if (!parsed) return;
+        const data = localJson(key, null);
+        if (data) queueRecord('specialty_form', parsed.clientId, parsed.moduleId, data);
+      } else if (key.startsWith(NOTE_PREFIX)) {
+        const parsed = parseNoteKey(key);
+        if (!parsed) return;
+        const value = localStorage.getItem(key) || '';
+        queueRecord('module_note', parsed.clientId, parsed.moduleId, {
+          moduleId: parsed.moduleId,
+          text: value
+        });
+      }
+    }, 650));
+  }
+
+  // Observe only the two per-client specialty storage namespaces.
+  Storage.prototype.setItem = function (key, value) {
+    nativeSetItem.call(this, key, value);
+    if (this === localStorage &&
+        (String(key).startsWith(WORKSPACE_PREFIX) || String(key).startsWith(NOTE_PREFIX))) {
+      scheduleKey(String(key));
+    }
+  };
+
+  async function initialSync() {
+    const user = account();
+    if (!sb()?.from || !user?.id) return;
+    activeAccountId = String(user.id);
+    ready = false;
+
+    const clientIds = [...allowedClients()];
+    if (!clientIds.length) {
+      snapshots.clear();
+      ready = true;
+      applyReadOnly();
+      refreshNoteControls();
+      return;
+    }
+
+    const cloudRows = await fetchRows(clientIds);
+    const cloudMap = new Map(cloudRows.map(row => [
+      keyOf(row.record_type, row.client_id, row.record_key), row
+    ]));
+
+    // Import local per-client workspaces only when the server has no copy.
+    if (canEdit()) {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        const parsed = parseWorkspaceKey(key || '');
+        if (!parsed || !allowedClients().has(String(parsed.clientId))) continue;
+        const data = localJson(key, null);
+        if (!data || typeof data !== 'object') continue;
+        const cloudKey = keyOf('specialty_form', parsed.clientId, parsed.moduleId);
+        if (!cloudMap.has(cloudKey)) {
+          try {
+            await insertRecord('specialty_form', parsed.clientId, parsed.moduleId, data);
+          } catch (error) {
+            // A concurrent insert is not overwritten; the subsequent download wins.
+            console.warn('Specialty workspace import skipped:', error);
+          }
+        }
+      }
+
+      // Import explicitly client-linked notes created by this version.
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        const parsed = parseNoteKey(key || '');
+        if (!parsed || !allowedClients().has(String(parsed.clientId))) continue;
+        const text = localStorage.getItem(key) || '';
+        const cloudKey = keyOf('module_note', parsed.clientId, parsed.moduleId);
+        if (text.trim() && !cloudMap.has(cloudKey)) {
+          try {
+            await insertRecord('module_note', parsed.clientId, parsed.moduleId, {
+              moduleId: parsed.moduleId, text
+            });
+          } catch (error) {
+            console.warn('Specialty note import skipped:', error);
+          }
+        }
+      }
+    }
+
+    const latestRows = await fetchRows(clientIds);
+    snapshots.clear();
+
+    for (const row of latestRows) {
+      const k = keyOf(row.record_type, row.client_id, row.record_key);
+      const data = row.data && typeof row.data === 'object' ? row.data : {};
+      if (row.record_type === 'specialty_form') {
+        setLocal(workspaceKey(row.record_key, row.client_id), data);
+      } else if (row.record_type === 'module_note') {
+        setLocal(noteKey(row.record_key, row.client_id), String(data.text || ''));
+      }
+      snapshots.set(k, {
+        json: JSON.stringify(data),
+        updatedAt: row.updated_at || null
+      });
+    }
+
+    ready = true;
+    applyReadOnly();
+    refreshNoteControls();
+    status('همگام‌سازی ابری برقرار است؛ سوابق تخصصی و یادداشت‌های هر مراجع نیز دریافت شدند.');
+  }
+
+  function esc(value) {
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    }[ch]));
+  }
+
+  function moduleClientOptions(selected) {
+    const clients = (typeof db !== 'undefined' && Array.isArray(db.clients)) ? db.clients : [];
+    return '<option value="">انتخاب مراجع</option>' + clients.map(c =>
+      `<option value="${esc(c.id)}" ${String(c.id) === String(selected) ? 'selected' : ''}>${esc(c.name)} — ${esc(c.code || 'بدون کد')}</option>`
+    ).join('');
+  }
+
+  function loadNote(moduleId, clientId) {
+    const textarea = document.getElementById('note_' + moduleId);
+    if (!textarea) return;
+    textarea.value = clientId ? (localStorage.getItem(noteKey(moduleId, clientId)) || '') : '';
+    const saveBtn = textarea.parentElement?.querySelector('button[onclick*="saveModuleNote"]');
+    if (saveBtn) saveBtn.disabled = !clientId || !canEdit();
+  }
+
+  function refreshNoteControls() {
+    MODULES.forEach(moduleId => {
+      const textarea = document.getElementById('note_' + moduleId);
+      if (!textarea) return;
+      let select = document.getElementById('note_client_' + moduleId);
+      if (!select) {
+        select = document.createElement('select');
+        select.id = 'note_client_' + moduleId;
+        select.className = 'tp-note-client-select';
+        select.setAttribute('aria-label', 'انتخاب مراجع برای یادداشت');
+        const label = document.createElement('label');
+        label.className = 'tp-note-client-label';
+        label.textContent = 'یادداشت مربوط به پرونده مراجع';
+        textarea.parentElement.insertBefore(label, textarea);
+        textarea.parentElement.insertBefore(select, textarea);
+        select.addEventListener('change', () => {
+          const workspaceSelect = document.getElementById(moduleId + '_client_context');
+          if (workspaceSelect && workspaceSelect.value !== select.value) {
+            workspaceSelect.value = select.value;
+            workspaceSelect.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+          if (select.value) localStorage.setItem('tp_active_client_' + moduleId, select.value);
+          loadNote(moduleId, select.value);
+        });
+      }
+      const workspaceSelect = document.getElementById(moduleId + '_client_context');
+      const preferred = workspaceSelect?.value ||
+        localStorage.getItem('tp_active_client_' + moduleId) || '';
+      select.innerHTML = moduleClientOptions(preferred);
+      if (preferred && [...select.options].some(o => o.value === preferred)) {
+        select.value = preferred;
+      } else {
+        select.value = '';
+      }
+      if (workspaceSelect && !workspaceSelect.dataset.noteSyncBound) {
+        workspaceSelect.dataset.noteSyncBound = '1';
+        workspaceSelect.addEventListener('change', () => {
+          const noteSelect = document.getElementById('note_client_' + moduleId);
+          if (noteSelect) {
+            noteSelect.value = workspaceSelect.value;
+            loadNote(moduleId, workspaceSelect.value);
+          }
+        });
+      }
+      loadNote(moduleId, select.value);
+    });
+  }
+
+  window.saveModuleNote = function (moduleId) {
+    const select = document.getElementById('note_client_' + moduleId);
+    const textarea = document.getElementById('note_' + moduleId);
+    const clientId = select?.value || '';
+    if (!textarea || !clientId) {
+      alert('ابتدا مراجع مربوط به این یادداشت را انتخاب کنید.');
+      return;
+    }
+    if (!canEdit()) {
+      alert('حساب شما فقط اجازه مشاهده اطلاعات را دارد.');
+      return;
+    }
+    const value = textarea.value;
+    try {
+      localStorage.setItem(noteKey(moduleId, clientId), value);
+      const out = document.getElementById('saved_' + moduleId);
+      if (out) out.textContent = 'یادداشت این مراجع ذخیره شد';
+    } catch (error) {
+      alert('ذخیره یادداشت انجام نشد: ' + (error.message || error));
+    }
+  };
+
+  function applyReadOnly() {
+    const readOnly = !canEdit();
+    document.body.classList.toggle('tp-readonly', readOnly);
+    MODULES.forEach(moduleId => {
+      const root = document.getElementById('workspace_' + moduleId);
+      if (root) {
+        root.querySelectorAll('input,textarea,select,button').forEach(el => {
+          if (el.id === moduleId + '_client_context' || el.closest('.workspace-tabs')) return;
+          el.disabled = readOnly;
+        });
+      }
+      const note = document.getElementById('note_' + moduleId);
+      if (note) note.disabled = readOnly;
+      const saveBtn = note?.parentElement?.querySelector('button[onclick*="saveModuleNote"]');
+      if (saveBtn) saveBtn.disabled = readOnly || !document.getElementById('note_client_' + moduleId)?.value;
+    });
+  }
+
+  const originalLoadClients = window.tpCloudLoadClients;
+  if (typeof originalLoadClients === 'function') {
+    window.tpCloudLoadClients = async function () {
+      const result = await originalLoadClients.apply(this, arguments);
+      try {
+        await initialSync();
+      } catch (error) {
+        ready = false;
+        console.error('Time Plus specialty initial sync:', error);
+        status('پرونده‌ها دریافت شدند، اما همگام‌سازی سوابق تخصصی انجام نشد: ' + (error.message || error), true);
+      }
+      return result;
+    };
+  }
+
+  // Refresh the note selectors after the workspace UI and client list are available.
+  function initUi() {
+    refreshNoteControls();
+    applyReadOnly();
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initUi);
+  } else {
+    initUi();
+  }
+
+  window.tpCloudSyncSpecialty = initialSync;
+})();
+</script>
+
 </body>
 </html>
